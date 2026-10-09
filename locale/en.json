@@ -1,0 +1,4 @@
+{
+  "title": "Credit and context gauge",
+  "description": "A blue bar above the sidebar's Settings row showing credit spent since the last top-up against the balance that top-up left, plus the current context-window usage above the composer."
+}

@@ -1,0 +1,3 @@
+# The bundle is authored with LF; keep it that way on every checkout so a
+# Windows working copy never shows whole-file diffs.
+* text=auto eol=lf

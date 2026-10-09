@@ -1,0 +1,8 @@
+# Token gauge — bundle patch.
+#
+# This bundle takes no configuration: the credit gauge follows the signed-in
+# account's own balance (and detects a top-up from the balance rising), and the
+# context reading comes from the shipped token-meter projection.
+- insert:
+    - id: token-gauge
+      name: '@local/dsh-token-gauge'

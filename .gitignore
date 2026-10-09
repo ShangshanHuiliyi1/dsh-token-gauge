@@ -1,0 +1,8 @@
+# The host profile links this package into its own node_modules, so a copy
+# here would only ever be a leftover.
+node_modules/
+
+# Editor and OS noise.
+.DS_Store
+Thumbs.db
+*.log
