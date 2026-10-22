@@ -42,30 +42,42 @@ window.__ModuleLoader__.load({
 
     const CLASS = {
       anchor: 'dshTokenGaugeAnchor',
+      anchorRail: 'dshTokenGaugeAnchorRail',
       card: 'dshTokenGaugeCard',
       rail: 'dshTokenGaugeRail',
       row: 'dshTokenGaugeRow',
       label: 'dshTokenGaugeLabel',
       amount: 'dshTokenGaugeAmount',
       track: 'dshTokenGaugeTrack',
-      railTrack: 'dshTokenGaugeRailTrack',
       fill: 'dshTokenGaugeFill',
       fillWarn: 'dshTokenGaugeFillWarn',
       fillError: 'dshTokenGaugeFillError',
-      meta: 'dshTokenGaugeMeta',
+      railPercent: 'dshTokenGaugeRailPercent',
+      note: 'dshTokenGaugeNote',
       context: 'dshTokenGaugeContext',
       contextValue: 'dshTokenGaugeContextValue',
     };
 
     /**
-     * The anchor is a zero-size flex item placed first in the sidebar's footer
-     * action row; the card hangs above the row (and therefore above the Cordis
-     * badge and the Settings row) without disturbing either, and without
-     * depending on the sidebar's draggable width.
+     * Layout contract.
+     *
+     * The card must never sit on top of the workspace list, so it does not float
+     * at all: its anchor is a zero-width flex item in the sidebar's footer action
+     * row whose `min-height` reserves real vertical space, and the card is pinned
+     * to the bottom of that space (below the shipped Cordis badge, above the
+     * Settings row). `regionArea` is the sidebar column's flexible child
+     * (`flex:1; min-height:0; overflow:hidden`), so the footer growing by this
+     * height simply makes the list that much shorter instead of being covered.
+     *
+     * The reserve is the shipped footer row (Cordis badge: `height:42px` plus
+     * `margin-top:8px` = 50px) plus the card, plus a small breathing gap. Both
+     * numbers are exposed as custom properties so they can be tuned without
+     * touching the code.
      */
     const CSS = [
-      `.${CLASS.anchor}{position:relative;flex:0 0 0;align-self:flex-start;width:0;height:0;min-width:0;overflow:visible}`,
-      `.${CLASS.card}{position:absolute;left:0;top:0;transform:translateY(calc(-100% - 6px));box-sizing:border-box;width:216px;padding:8px 10px;border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-panel,0 8px 24px rgba(0,0,0,.18));color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;display:flex;flex-direction:column;gap:6px;pointer-events:auto;cursor:pointer;text-align:left}`,
+      `.${CLASS.anchor}{position:relative;flex:0 0 0;align-self:flex-end;width:0;min-width:0;min-height:var(--dsh-token-gauge-reserve,96px);overflow:visible}`,
+      `.${CLASS.anchorRail}{min-height:var(--dsh-token-gauge-reserve-rail,74px)}`,
+      `.${CLASS.card}{position:absolute;left:0;bottom:0;box-sizing:border-box;width:216px;height:40px;padding:6px 10px;border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-panel,0 8px 24px rgba(0,0,0,.18));color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;display:flex;flex-direction:column;justify-content:center;gap:6px;pointer-events:auto;cursor:pointer;text-align:left}`,
       `.${CLASS.card}:hover{border-color:var(--dsw-alias-border-l2)}`,
       `.${CLASS.card}:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b82f6);outline-offset:2px}`,
       `.${CLASS.row}{display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0}`,
@@ -75,12 +87,13 @@ window.__ModuleLoader__.load({
       `.${CLASS.fill}{height:100%;width:0;border-radius:999px;background:var(--dsw-alias-brand-primary,#3b82f6);transition:width .2s ease}`,
       `.${CLASS.fillWarn}{background:var(--dsw-alias-state-warn-primary)}`,
       `.${CLASS.fillError}{background:var(--dsw-alias-state-error-primary)}`,
-      `.${CLASS.meta}{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`,
+      `.${CLASS.railPercent}{display:none;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:12px;font-variant-numeric:tabular-nums}`,
+      `.${CLASS.note}{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`,
       // Collapsed sidebar (56px rail): the same card narrows to the percentage.
-      `.${CLASS.rail}{width:36px;padding:6px 2px;align-items:center;gap:4px}`,
+      `.${CLASS.rail}{width:36px;height:34px;padding:4px 2px;align-items:center;gap:3px}`,
       `.${CLASS.rail} .${CLASS.row}{display:none}`,
-      `.${CLASS.rail} .${CLASS.meta}{width:100%;text-align:center}`,
-      `.${CLASS.rail} .${CLASS.track}{width:32px}`,
+      `.${CLASS.rail} .${CLASS.railPercent}{display:block}`,
+      `.${CLASS.rail} .${CLASS.track}{width:28px}`,
       // Context readout above the composer card: one short line, no bar.
       `.${CLASS.context}{box-sizing:border-box;width:calc(100% - 2 * var(--dsh-composer-side-clearance,16px));max-width:var(--dsh-composer-card-max-width,760px);margin:0 auto;padding:0 2px 6px;display:flex;align-items:baseline;gap:8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:default;user-select:none}`,
       `.${CLASS.contextValue}{color:var(--dsw-alias-label-primary);font-weight:500;font-variant-numeric:tabular-nums}`,
@@ -90,8 +103,8 @@ window.__ModuleLoader__.load({
     const zh = {
       'credit.used': '已用',
       'credit.left': '剩余',
-      'credit.meta': '{percent}% · 自 {time} 充值',
-      'credit.tip': '自 {time} 充值后总额度 {total}：已用 {used}，当前剩余 {left}。点击刷新余额。',
+      'credit.percent': '{percent}%',
+      'credit.tip': '自 {time} 充值后总额度 {total}：已用 {used}（占 {percent}%），当前剩余 {left}。点击刷新余额。',
       'credit.unavailable': '额度不可用',
       'credit.unavailable.tip': '读取账户余额失败：账号可能未登录，或平台暂时不可用。点击重试。',
       'credit.missing': '额度服务不可用',
@@ -106,8 +119,8 @@ window.__ModuleLoader__.load({
     const en = {
       'credit.used': 'Used',
       'credit.left': 'Left',
-      'credit.meta': '{percent}% · since {time}',
-      'credit.tip': 'Credit since the top-up at {time}: total {total}, used {used}, left {left}. Click to refresh.',
+      'credit.percent': '{percent}%',
+      'credit.tip': 'Credit since the top-up at {time}: total {total}, used {used} ({percent}% of it), left {left}. Click to refresh.',
       'credit.unavailable': 'Credit unavailable',
       'credit.unavailable.tip': 'Reading the account balance failed: the account may be signed out, or the platform is unavailable. Click to retry.',
       'credit.missing': 'Credit service unavailable',
@@ -456,13 +469,14 @@ window.__ModuleLoader__.load({
       // Nothing read yet and nothing stored: stay out of the way until we know.
       if (regime === null && problem === null) return null;
 
+      const anchorClass = wide === false ? `${CLASS.anchor} ${CLASS.anchorRail}` : CLASS.anchor;
       const cardClass = wide === false ? `${CLASS.card} ${CLASS.rail}` : CLASS.card;
       if (regime === null) {
         const reason = problem === 'missing' ? tr('credit.missing.tip') : tr('credit.unavailable.tip');
         const tip = detail === '' ? reason : `${reason}\n${detail}`;
         return React.createElement(
           'div',
-          { className: CLASS.anchor, 'data-dsh-token-gauge': 'credit' },
+          { className: anchorClass, 'data-dsh-token-gauge': 'credit' },
           React.createElement(
             'button',
             {
@@ -474,7 +488,7 @@ window.__ModuleLoader__.load({
               title: tip,
               'aria-label': tip,
             },
-            React.createElement('span', { className: CLASS.meta }, problem === 'missing' ? tr('credit.missing') : tr('credit.unavailable')),
+            React.createElement('span', { className: CLASS.note }, problem === 'missing' ? tr('credit.missing') : tr('credit.unavailable')),
           ),
         );
       }
@@ -489,6 +503,7 @@ window.__ModuleLoader__.load({
         time: stamp === '' ? '—' : stamp,
         total: formatMoney(regime.baseline, regime.currency),
         used: formatMoney(used, regime.currency),
+        percent,
         left: formatMoney(remaining, regime.currency),
       });
       // A refresh that failed behind a drawn card still says why on hover.
@@ -500,7 +515,7 @@ window.__ModuleLoader__.load({
 
       return React.createElement(
         'div',
-        { className: CLASS.anchor, 'data-dsh-token-gauge': 'credit' },
+        { className: anchorClass, 'data-dsh-token-gauge': 'credit' },
         React.createElement(
           'button',
           {
@@ -535,7 +550,8 @@ window.__ModuleLoader__.load({
             { className: CLASS.track },
             React.createElement('span', { className: fillClass, style: { width: `${String(percent)}%` } }),
           ),
-          React.createElement('span', { className: CLASS.meta }, tr('credit.meta', { percent, time: stamp === '' ? '—' : stamp })),
+          // Collapsed rail: the numbers do not fit, the share does.
+          React.createElement('span', { className: CLASS.railPercent }, tr('credit.percent', { percent })),
         ),
       );
     }

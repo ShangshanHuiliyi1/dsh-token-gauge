@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-token-gauge",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "type": "module",
   "description": "Credit gauge above the sidebar's Settings row plus a context-window readout above the composer.",
