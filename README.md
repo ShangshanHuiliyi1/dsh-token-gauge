@@ -7,6 +7,37 @@
 | 左侧栏「设置」上方（`sidebar.footer.action`） | 上次充值后已用额度 ÷ 上次充值后的总额度 | 蓝色进度条卡片 |
 | 输入框上方（`conversation.input.dock`） | 当前会话上下文已用量 | 纯文字，无进度条、无占比、不显示剩余 |
 
+## 安装
+
+这是一个 DSH **bundle**（`package.json` 里声明了 `dsh.bundle.patch` 与 `dsh.client`），装进某个 profile 后两端同时生效：Host 半边是空壳，界面全在 Client 半边。
+
+**方式一：从仓库安装（公开仓库，无需凭据）**
+
+在 DSH 的插件页安装这个仓库地址，或让 Agent 用 `install_bundle` 指向它：
+
+```
+git+https://github.com/ShangshanHuiliyi1/dsh-token-gauge.git
+```
+
+安装动作会同时写两处，缺一不可：profile `package.json` 的 `dependencies`，以及 `dsh.profile.bundles`（只有列进 bundles 才会被组合加载）。
+
+**方式二：本地目录安装**
+
+```bash
+git clone https://github.com/ShangshanHuiliyi1/dsh-token-gauge.git
+# 然后把这个目录作为安装目标（Plugin Manager 的 install_bundle 支持目录路径）
+```
+
+**验证**：装好后侧栏底部「设置」上方应出现额度卡片；若没有，确认 profile 的 `cordis.patch.yml` 里有这一行（bundle 自带的 patch 会插入它）：
+
+```yaml
+- insert:
+    - id: token-gauge
+      name: '@local/dsh-token-gauge'
+```
+
+**依赖**：客户端半边声明了 `slots`、`locale`、`remote`、`remote.account`、`remote.session`。后两个是点号 Remote 命名空间，Cordis 对未声明的点号服务会**抛异常**而不是返回 `undefined`，所以缺账户域（`dsh-api-account-controller`）的 profile 里这个插件不会激活。
+
 ## 额度进度条（设置上方）
 
 - **分母** = 上一次充值之后账户上的全部剩余额度（余额 + 赠送余额，取账户主币种）。
@@ -55,4 +86,9 @@
 - 页面关闭期间的充值：重新打开页面后第一次采样余额变高，会被正确识别为充值（新基准 = 当前余额），但顶部那段时间里已经花掉的部分无法追溯，会从 0 开始重新计。
 - 通过 API Key（而非登录账号）计费时账户余额不变，进度条会停在原处。
 - 额度单位是账户货币（¥ / $），不是 token 数；token 用量只在上下文那一行体现。
-- 卡片按侧栏内容宽度（264–420px）以 216px 宽度浮在底部之上，不随侧栏拖拽而改变宽度。
+- 卡片固定 216px 宽（侧栏内容宽度 264–420px），在页脚里占真实高度而非浮层，因此不随侧栏拖拽改变宽度、也不会遮住工作区列表。
+
+## License
+
+[MIT](./LICENSE) © shangshanhuiliyi
+
