@@ -78,13 +78,16 @@ window.__ModuleLoader__.load({
     const CSS = [
       `.${CLASS.anchor}{position:relative;flex:0 0 0;align-self:flex-end;width:0;min-width:0;min-height:var(--dsh-token-gauge-reserve,120px);overflow:visible}`,
       `.${CLASS.anchorRail}{min-height:var(--dsh-token-gauge-reserve-rail,76px)}`,
-      `.${CLASS.card}{position:absolute;left:0;bottom:0;box-sizing:border-box;width:216px;padding:8px 10px;border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-panel,0 8px 24px rgba(0,0,0,.18));color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;display:flex;flex-direction:column;gap:5px;pointer-events:auto;cursor:pointer;text-align:left}`,
+      `.${CLASS.card}{position:absolute;left:0;bottom:0;box-sizing:border-box;width:216px;padding:8px 10px;border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-panel,0 8px 24px rgba(0,0,0,.18));color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;display:flex;flex-direction:column;align-items:stretch;gap:5px;pointer-events:auto;cursor:pointer;text-align:left}`,
       `.${CLASS.card}:hover{border-color:var(--dsw-alias-border-l2)}`,
       `.${CLASS.card}:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b82f6);outline-offset:2px}`,
       `.${CLASS.row}{display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0}`,
       `.${CLASS.label}{color:var(--dsw-alias-label-tertiary);white-space:nowrap}`,
       `.${CLASS.amount}{color:var(--dsw-alias-label-primary);font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`,
-      `.${CLASS.track}{flex:none;height:6px;border-radius:999px;background:var(--dsw-alias-border-l2);overflow:hidden}`,
+      // The card is a <button>: its UA style centers flex items, which collapses
+      // an empty span to zero width. `align-self: stretch` keeps the 6px track
+      // full-width no matter what the button's own alignment resolves to.
+      `.${CLASS.track}{flex:none;align-self:stretch;width:100%;height:6px;border-radius:999px;background:var(--dsw-alias-border-l2,rgba(127,127,127,.35));overflow:hidden}`,
       `.${CLASS.fill}{height:100%;width:0;border-radius:999px;background:var(--dsw-alias-brand-primary,#3b82f6);transition:width .2s ease}`,
       `.${CLASS.fillWarn}{background:var(--dsw-alias-state-warn-primary)}`,
       `.${CLASS.fillError}{background:var(--dsw-alias-state-error-primary)}`,
@@ -553,7 +556,11 @@ window.__ModuleLoader__.load({
           React.createElement(
             'span',
             { className: CLASS.track },
-            React.createElement('span', { className: fillClass, style: { width: `${String(percent)}%` } }),
+            // A minimum sliver keeps a tiny share visible instead of a bare track.
+            React.createElement('span', {
+              className: fillClass,
+              style: { width: `${String(percent)}%`, minWidth: percent > 0 ? '3px' : '0' },
+            }),
           ),
           // Wide: share and the top-up stamp stay visible under the bar.
           React.createElement('span', { className: CLASS.meta }, tr('credit.meta', { percent, time: stamp === '' ? '—' : stamp })),
