@@ -53,6 +53,7 @@ window.__ModuleLoader__.load({
       fillWarn: 'dshTokenGaugeFillWarn',
       fillError: 'dshTokenGaugeFillError',
       railPercent: 'dshTokenGaugeRailPercent',
+      meta: 'dshTokenGaugeMeta',
       note: 'dshTokenGaugeNote',
       context: 'dshTokenGaugeContext',
       contextValue: 'dshTokenGaugeContextValue',
@@ -69,29 +70,31 @@ window.__ModuleLoader__.load({
      * (`flex:1; min-height:0; overflow:hidden`), so the footer growing by this
      * height simply makes the list that much shorter instead of being covered.
      *
-     * The reserve is the shipped footer row (Cordis badge: `height:42px` plus
-     * `margin-top:8px` = 50px) plus the card, plus a small breathing gap. Both
-     * numbers are exposed as custom properties so they can be tuned without
-     * touching the code.
+     * The card keeps its natural three-row height (numbers, bar, top-up stamp):
+     * pinning a fixed height clipped the bar and hid the stamp. The reserve is the
+     * shipped footer row (Cordis badge: `height:42px` plus `margin-top:8px` = 50px)
+     * plus the card plus a breathing gap; both numbers are custom properties.
      */
     const CSS = [
-      `.${CLASS.anchor}{position:relative;flex:0 0 0;align-self:flex-end;width:0;min-width:0;min-height:var(--dsh-token-gauge-reserve,96px);overflow:visible}`,
-      `.${CLASS.anchorRail}{min-height:var(--dsh-token-gauge-reserve-rail,74px)}`,
-      `.${CLASS.card}{position:absolute;left:0;bottom:0;box-sizing:border-box;width:216px;height:40px;padding:6px 10px;border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-panel,0 8px 24px rgba(0,0,0,.18));color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;display:flex;flex-direction:column;justify-content:center;gap:6px;pointer-events:auto;cursor:pointer;text-align:left}`,
+      `.${CLASS.anchor}{position:relative;flex:0 0 0;align-self:flex-end;width:0;min-width:0;min-height:var(--dsh-token-gauge-reserve,120px);overflow:visible}`,
+      `.${CLASS.anchorRail}{min-height:var(--dsh-token-gauge-reserve-rail,76px)}`,
+      `.${CLASS.card}{position:absolute;left:0;bottom:0;box-sizing:border-box;width:216px;padding:8px 10px;border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-panel,0 8px 24px rgba(0,0,0,.18));color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;display:flex;flex-direction:column;gap:5px;pointer-events:auto;cursor:pointer;text-align:left}`,
       `.${CLASS.card}:hover{border-color:var(--dsw-alias-border-l2)}`,
       `.${CLASS.card}:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b82f6);outline-offset:2px}`,
       `.${CLASS.row}{display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0}`,
       `.${CLASS.label}{color:var(--dsw-alias-label-tertiary);white-space:nowrap}`,
       `.${CLASS.amount}{color:var(--dsw-alias-label-primary);font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`,
-      `.${CLASS.track}{height:6px;border-radius:999px;background:var(--dsw-alias-border-l1);overflow:hidden}`,
+      `.${CLASS.track}{flex:none;height:6px;border-radius:999px;background:var(--dsw-alias-border-l2);overflow:hidden}`,
       `.${CLASS.fill}{height:100%;width:0;border-radius:999px;background:var(--dsw-alias-brand-primary,#3b82f6);transition:width .2s ease}`,
       `.${CLASS.fillWarn}{background:var(--dsw-alias-state-warn-primary)}`,
       `.${CLASS.fillError}{background:var(--dsw-alias-state-error-primary)}`,
+      `.${CLASS.meta}{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`,
       `.${CLASS.railPercent}{display:none;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:12px;font-variant-numeric:tabular-nums}`,
       `.${CLASS.note}{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`,
-      // Collapsed sidebar (56px rail): the same card narrows to the percentage.
-      `.${CLASS.rail}{width:36px;height:34px;padding:4px 2px;align-items:center;gap:3px}`,
+      // Collapsed sidebar (56px rail): numbers and stamp do not fit; keep the share.
+      `.${CLASS.rail}{width:36px;padding:6px 2px;align-items:center;gap:3px}`,
       `.${CLASS.rail} .${CLASS.row}{display:none}`,
+      `.${CLASS.rail} .${CLASS.meta}{display:none}`,
       `.${CLASS.rail} .${CLASS.railPercent}{display:block}`,
       `.${CLASS.rail} .${CLASS.track}{width:28px}`,
       // Context readout above the composer card: one short line, no bar.
@@ -104,6 +107,7 @@ window.__ModuleLoader__.load({
       'credit.used': '已用',
       'credit.left': '剩余',
       'credit.percent': '{percent}%',
+      'credit.meta': '{percent}% · 自 {time} 充值',
       'credit.tip': '自 {time} 充值后总额度 {total}：已用 {used}（占 {percent}%），当前剩余 {left}。点击刷新余额。',
       'credit.unavailable': '额度不可用',
       'credit.unavailable.tip': '读取账户余额失败：账号可能未登录，或平台暂时不可用。点击重试。',
@@ -120,6 +124,7 @@ window.__ModuleLoader__.load({
       'credit.used': 'Used',
       'credit.left': 'Left',
       'credit.percent': '{percent}%',
+      'credit.meta': '{percent}% · since {time}',
       'credit.tip': 'Credit since the top-up at {time}: total {total}, used {used} ({percent}% of it), left {left}. Click to refresh.',
       'credit.unavailable': 'Credit unavailable',
       'credit.unavailable.tip': 'Reading the account balance failed: the account may be signed out, or the platform is unavailable. Click to retry.',
@@ -550,7 +555,9 @@ window.__ModuleLoader__.load({
             { className: CLASS.track },
             React.createElement('span', { className: fillClass, style: { width: `${String(percent)}%` } }),
           ),
-          // Collapsed rail: the numbers do not fit, the share does.
+          // Wide: share and the top-up stamp stay visible under the bar.
+          React.createElement('span', { className: CLASS.meta }, tr('credit.meta', { percent, time: stamp === '' ? '—' : stamp })),
+          // Collapsed rail: only the share fits.
           React.createElement('span', { className: CLASS.railPercent }, tr('credit.percent', { percent })),
         ),
       );

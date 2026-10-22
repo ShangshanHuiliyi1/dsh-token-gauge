@@ -22,8 +22,8 @@
 
 - 注册项是一个**零宽**（但 `min-height` 撑高）的锚点，卡片贴在这段预留空间的底部，位置在 Cordis 徽标与 Settings 行之间；
 - 侧栏的 `regionArea`（列表容器）本身是 `flex:1; min-height:0; overflow:hidden`，页脚变高它就让出对应高度，所以**列表只是变短，不会被覆盖**；
-- 预留高度可用 CSS 变量调整，不用改代码：`--dsh-token-gauge-reserve`（展开态，默认 96px = Cordis 行 50px + 卡片 40px + 间隙）、`--dsh-token-gauge-reserve-rail`（折叠态，默认 74px）。Cordis 徽标尺寸（`height:42px; margin-top:8px`）如因版本更新变化，调这两个值即可；
-- 卡片本身压缩到 40px 两行（数字 + 进度条），占比与「自 xx 充值」移到悬停提示里，以尽量少占列表空间。
+- 预留高度可用 CSS 变量调整，不用改代码：`--dsh-token-gauge-reserve`（展开态，默认 120px = Cordis 行 50px + 卡片约 63px + 间隙）、`--dsh-token-gauge-reserve-rail`（折叠态，默认 76px）。Cordis 徽标尺寸（`height:42px; margin-top:8px`）如因版本更新变化，调这两个值即可；
+- 卡片保持**自然三行高度**（数字 / 进度条 / 占比·充值时间）。曾经试过把高度压到 40px 并把占比与充值时间挪进悬停提示，结果进度条被裁掉、时间也不显示，已回退——宁可列表少 60px，也不牺牲这两个读数。
 
 ### 「相当于多少 tokens」是怎么算的
 
