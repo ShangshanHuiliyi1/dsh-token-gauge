@@ -401,6 +401,35 @@ window.__ModuleLoader__.load({
       return { ...credit, tokens };
     }
 
+    /** Inline geometry for the bar: it must render even with no stylesheet yet. */
+    const TRACK_STYLE = Object.freeze({
+      display: 'block',
+      width: '100%',
+      height: '6px',
+      flex: '0 0 auto',
+      alignSelf: 'stretch',
+      boxSizing: 'border-box',
+      borderRadius: '999px',
+      background: 'var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
+      overflow: 'hidden',
+    });
+
+    /**
+     * @param percent - filled share, 0-100.
+     * @param tint - background for the filled part (theme token).
+     * @returns inline style for the fill span.
+     */
+    function fillStyle(percent, tint) {
+      return {
+        display: 'block',
+        height: '6px',
+        width: `${String(percent)}%`,
+        minWidth: percent > 0 ? '3px' : '0',
+        borderRadius: '999px',
+        background: tint,
+      };
+    }
+
     /**
      * The credit bar above the sidebar's Settings row.
      *
@@ -506,6 +535,14 @@ window.__ModuleLoader__.load({
       const percent = regime.baseline > 0 ? Math.min(100, Math.max(0, Math.round((used / regime.baseline) * 100))) : 0;
       const fillClass =
         percent >= ERROR_PERCENT ? `${CLASS.fill} ${CLASS.fillError}` : percent >= WARN_PERCENT ? `${CLASS.fill} ${CLASS.fillWarn}` : CLASS.fill;
+      // The tint rides the fill's inline style, so the bar reads correctly before
+      // (or without) the stylesheet; the class still supplies the hover transition.
+      const tint =
+        percent >= ERROR_PERCENT
+          ? 'var(--dsw-alias-state-error-primary, #e5484d)'
+          : percent >= WARN_PERCENT
+            ? 'var(--dsw-alias-state-warn-primary, #f5a623)'
+            : 'var(--dsw-alias-brand-primary, #3b82f6)';
       const stamp = formatStamp(regime.baselineAt);
       const reading = tr('credit.tip', {
         time: stamp === '' ? '—' : stamp,
@@ -555,12 +592,8 @@ window.__ModuleLoader__.load({
           ),
           React.createElement(
             'span',
-            { className: CLASS.track },
-            // A minimum sliver keeps a tiny share visible instead of a bare track.
-            React.createElement('span', {
-              className: fillClass,
-              style: { width: `${String(percent)}%`, minWidth: percent > 0 ? '3px' : '0' },
-            }),
+            { className: CLASS.track, style: TRACK_STYLE },
+            React.createElement('span', { className: fillClass, style: fillStyle(percent, tint) }),
           ),
           // Wide: share and the top-up stamp stay visible under the bar.
           React.createElement('span', { className: CLASS.meta }, tr('credit.meta', { percent, time: stamp === '' ? '—' : stamp })),
@@ -621,15 +654,24 @@ window.__ModuleLoader__.load({
      */
     function apply(ctx) {
       ctx.effect(() => {
-        const existing = document.querySelector('style[data-plugin-css="@local/dsh-token-gauge"]');
-        if (existing !== null) return () => {};
-        const tag = document.createElement('style');
-        tag.dataset.plugin = '@local/dsh-token-gauge';
-        tag.dataset.pluginCss = '@local/dsh-token-gauge';
+        // Hot reload order is apply-new-then-dispose-old. Bailing out because a
+        // tag already exists would let the old instance's cleanup delete the very
+        // sheet the new instance relies on — leaving the page with no CSS at all
+        // (text renders, everything geometry-dependent vanishes). So: reuse the
+        // tag, always refresh its content, and only the current owner may remove
+        // it.
+        const owner = `token-gauge-${Math.random().toString(36).slice(2)}`;
+        let tag = document.querySelector('style[data-plugin-css="@local/dsh-token-gauge"]');
+        if (tag === null) {
+          tag = document.createElement('style');
+          tag.dataset.plugin = '@local/dsh-token-gauge';
+          tag.dataset.pluginCss = '@local/dsh-token-gauge';
+          document.head.appendChild(tag);
+        }
+        tag.dataset.owner = owner;
         tag.textContent = CSS;
-        document.head.appendChild(tag);
         return () => {
-          tag.remove();
+          if (tag.dataset.owner === owner) tag.remove();
         };
       }, 'token-gauge: styles');
 
