@@ -26,8 +26,12 @@ window.__ModuleLoader__.load({
     const NS = 'token-gauge';
     /** Durable credit regime (baseline + last sample); a derived display cache. */
     const CREDIT_STORAGE_KEY = 'dsh.token-gauge.credit';
+    /** Optional price-book override (models / windows / holidays / model). */
+    const PRICE_OVERRIDE_KEY = 'dsh.token-gauge.pricing';
     /** Balance polling period while the page is visible. */
     const REFRESH_MS = 120_000;
+    /** Countdown tick; only the price rows re-read it. */
+    const CLOCK_MS = 1_000;
     /** Balance growth above this counts as a top-up (half a cent). */
     const TOPUP_EPSILON = 0.005;
     /**
@@ -70,13 +74,14 @@ window.__ModuleLoader__.load({
      * (`flex:1; min-height:0; overflow:hidden`), so the footer growing by this
      * height simply makes the list that much shorter instead of being covered.
      *
-     * The card keeps its natural three-row height (numbers, bar, top-up stamp):
-     * pinning a fixed height clipped the bar and hid the stamp. The reserve is the
-     * shipped footer row (Cordis badge: `height:42px` plus `margin-top:8px` = 50px)
-     * plus the card plus a breathing gap; both numbers are custom properties.
+     * The card keeps its natural height (numbers, bar, top-up stamp, price tier,
+     * countdown): pinning a fixed height once clipped the bar and hid the stamp.
+     * The reserve is the shipped footer row (Cordis badge: `height:42px` plus
+     * `margin-top:8px` = 50px) plus the card plus a breathing gap; both numbers
+     * are custom properties.
      */
     const CSS = [
-      `.${CLASS.anchor}{position:relative;flex:0 0 0;align-self:flex-end;width:0;min-width:0;min-height:var(--dsh-token-gauge-reserve,120px);overflow:visible}`,
+      `.${CLASS.anchor}{position:relative;flex:0 0 0;align-self:flex-end;width:0;min-width:0;min-height:var(--dsh-token-gauge-reserve,176px);overflow:visible}`,
       `.${CLASS.anchorRail}{min-height:var(--dsh-token-gauge-reserve-rail,76px)}`,
       `.${CLASS.card}{position:absolute;left:0;bottom:0;box-sizing:border-box;width:216px;padding:8px 10px;border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-panel,0 8px 24px rgba(0,0,0,.18));color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;display:flex;flex-direction:column;align-items:stretch;gap:5px;pointer-events:auto;cursor:pointer;text-align:left}`,
       `.${CLASS.card}:hover{border-color:var(--dsw-alias-border-l2)}`,
@@ -118,6 +123,14 @@ window.__ModuleLoader__.load({
       'credit.missing.tip': '当前界面没有账户服务可调用。点击重试。',
       'credit.tokens.est': '≈ {tokens} tokens（按本次充值后的实际均价换算）',
       'credit.tokens.none': '暂无法换算成 tokens：本次充值后还没有可测量的消费',
+      'price.peak': '峰价',
+      'price.offPeak': '谷价',
+      'price.input': '输入',
+      'price.output': '输出',
+      'price.nextPeak': '{time} 后转峰价',
+      'price.nextOffPeak': '{time} 后转谷价',
+      'price.unknown': '价格未知（{model}）',
+      'price.tip': '按默认模型 {model}（每百万 tokens）：{tier} 输入 {input}、输出 {output}、缓存命中 {cacheHit}。高峰时段为北京时间工作日 9:00–12:00、14:00–18:00；其余时段（含周末与法定节假日）为空闲时段，价格是高峰的一半。价目来源 {source}',
       'context.used': '上下文已用',
       'context.unit': 'tokens',
     };
@@ -135,6 +148,14 @@ window.__ModuleLoader__.load({
       'credit.missing.tip': 'This UI exposes no account service to call. Click to retry.',
       'credit.tokens.est': '≈ {tokens} tokens (converted at this top-up period\'s observed average price)',
       'credit.tokens.none': 'No token equivalent yet: nothing measurable has been spent since the top-up',
+      'price.peak': 'Peak',
+      'price.offPeak': 'Off-peak',
+      'price.input': 'in',
+      'price.output': 'out',
+      'price.nextPeak': 'peak in {time}',
+      'price.nextOffPeak': 'off-peak in {time}',
+      'price.unknown': 'price unknown ({model})',
+      'price.tip': 'Default model {model} (per million tokens): {tier} — input {input}, output {output}, cache hit {cacheHit}. Peak runs Beijing-time workdays 09:00–12:00 and 14:00–18:00; every other time (weekends and public holidays included) is off-peak at half the peak price. Rates from {source}',
       'context.used': 'Context used',
       'context.unit': 'tokens',
     };
@@ -246,6 +267,163 @@ window.__ModuleLoader__.load({
       const date = new Date(at);
       const pad = (part) => String(part).padStart(2, '0');
       return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    /**
+     * Official price book, CNY per 1,000,000 tokens.
+     *
+     * Retrieved from https://api-docs.deepseek.com/zh-cn/quick_start/pricing/ on
+     * 2026-10-28. Off-peak is exactly half of peak; peak runs on Beijing-time
+     * workdays (Mon–Fri, excluding statutory holidays) 09:00–12:00 and
+     * 14:00–18:00, and everything else is off-peak. Prices change — override
+     * `models` / `peakWindows` / `holidays` through localStorage key
+     * `dsh.token-gauge.pricing` (see README) instead of editing this file.
+     */
+    const PRICE_BOOK = {
+      source: 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/',
+      models: {
+        'deepseek-flash': {
+          peak: { cacheHit: 0.04, input: 2, output: 8 },
+          offPeak: { cacheHit: 0.02, input: 1, output: 4 },
+        },
+        'deepseek-v4-pro': {
+          peak: { cacheHit: 0.3, input: 9, output: 27 },
+          offPeak: { cacheHit: 0.15, input: 4.5, output: 13.5 },
+        },
+      },
+      /** Beijing time. China has no DST, so a fixed +08:00 offset is exact. */
+      peakWindows: [
+        [9, 12],
+        [14, 18],
+      ],
+      /** `YYYY-MM-DD` Beijing dates that count as off-peak all day. */
+      holidays: [],
+    };
+
+    /** Beijing-time calendar fields of one instant. */
+    function beijingParts(ms) {
+      const date = new Date(ms + 8 * 3_600_000);
+      return {
+        y: date.getUTCFullYear(),
+        m: date.getUTCMonth() + 1,
+        d: date.getUTCDate(),
+        h: date.getUTCHours(),
+        mi: date.getUTCMinutes(),
+        dow: date.getUTCDay(),
+      };
+    }
+
+    /** `YYYY-MM-DD` in Beijing time. */
+    function beijingDayKey(ms) {
+      const parts = beijingParts(ms);
+      const pad = (value) => String(value).padStart(2, '0');
+      return `${String(parts.y)}-${pad(parts.m)}-${pad(parts.d)}`;
+    }
+
+    /** Instant of Beijing 00:00 for the calendar day containing `ms`. */
+    function beijingDayStart(ms) {
+      const parts = beijingParts(ms);
+      return Date.UTC(parts.y, parts.m - 1, parts.d) - 8 * 3_600_000;
+    }
+
+    /** Whether a Beijing day counts as off-peak all day (weekend or holiday). */
+    function isOffPeakDay(ms, book) {
+      const parts = beijingParts(ms);
+      if (parts.dow === 0 || parts.dow === 6) return true;
+      const holidays = Array.isArray(book.holidays) ? book.holidays : [];
+      return holidays.includes(beijingDayKey(ms));
+    }
+
+    /**
+     * Which price tier applies at one instant.
+     *
+     * @param ms - epoch milliseconds.
+     * @param book - price book providing `peakWindows`, `holidays`.
+     * @returns `'peak'` or `'offPeak'`.
+     */
+    function priceTierAt(ms, book) {
+      if (isOffPeakDay(ms, book)) return 'offPeak';
+      const parts = beijingParts(ms);
+      const minutes = parts.h * 60 + parts.mi;
+      for (const window of Array.isArray(book.peakWindows) ? book.peakWindows : []) {
+        const [from, to] = window;
+        if (minutes >= from * 60 && minutes < to * 60) return 'peak';
+      }
+      return 'offPeak';
+    }
+
+    /**
+     * The next instant the tier changes, and which tier it becomes.
+     *
+     * Peak days contribute one boundary per window edge; off-peak days (weekends,
+     * holidays) contribute none, so the scan naturally lands on the next workday's
+     * first window instead of inventing a midnight switch.
+     *
+     * @param ms - epoch milliseconds.
+     * @param book - price book.
+     * @returns `{at, tier}`, or undefined when no boundary is found in the scan.
+     */
+    function nextTierChange(ms, book) {
+      const now = priceTierAt(ms, book);
+      const dayStart = beijingDayStart(ms);
+      let best;
+      for (let offset = 0; offset <= 9; offset += 1) {
+        const start = dayStart + offset * 86_400_000;
+        if (isOffPeakDay(start + 12 * 3_600_000, book)) continue;
+        for (const window of Array.isArray(book.peakWindows) ? book.peakWindows : []) {
+          for (const edge of [window[0] * 60, window[1] * 60]) {
+            const at = start + edge * 60_000;
+            if (at <= ms) continue;
+            const tier = priceTierAt(at + 60_000, book);
+            if (tier === now) continue;
+            if (best === undefined || at < best.at) best = { at, tier };
+          }
+        }
+      }
+      return best;
+    }
+
+    /** `2h13m` / `13m` / `45s` for a duration in milliseconds. */
+    function formatCountdown(ms) {
+      const total = Math.max(0, Math.round(ms / 1000));
+      const hours = Math.floor(total / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      const seconds = total % 60;
+      if (hours > 0) return `${String(hours)}h${String(minutes).padStart(2, '0')}m`;
+      if (minutes > 0) return `${String(minutes)}m${String(seconds).padStart(2, '0')}s`;
+      return `${String(seconds)}s`;
+    }
+
+    /** `¥2` / `¥0.04` / `¥13.5` for one per-million price. */
+    function formatPrice(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+      return `¥${String(Math.round(value * 100) / 100)}`;
+    }
+
+    /**
+     * The price book merged with the user's localStorage overrides.
+     *
+     * @returns a book with `models`, `peakWindows`, `holidays` and `model`.
+     */
+    function readPriceBook() {
+      let override = null;
+      try {
+        const raw = window.localStorage.getItem(PRICE_OVERRIDE_KEY);
+        if (raw !== null) {
+          const parsed = JSON.parse(raw);
+          if (parsed !== null && typeof parsed === 'object') override = parsed;
+        }
+      } catch {
+        override = null;
+      }
+      if (override === null) return { ...PRICE_BOOK, model: undefined };
+      return {
+        source: typeof override.source === 'string' ? override.source : PRICE_BOOK.source,
+        models: { ...PRICE_BOOK.models, ...(override.models !== null && typeof override.models === 'object' ? override.models : {}) },
+        peakWindows: Array.isArray(override.peakWindows) ? override.peakWindows : PRICE_BOOK.peakWindows,
+        holidays: Array.isArray(override.holidays) ? override.holidays : PRICE_BOOK.holidays,
+        model: typeof override.model === 'string' ? override.model : undefined,
+      };
     }
 
     /**
@@ -401,6 +579,38 @@ window.__ModuleLoader__.load({
       return { ...credit, tokens };
     }
 
+    /** The deployment's default model name, resolved once per page load. */
+    let defaultModelCache;
+
+    /**
+     * Ask the Host which model the deployment defaults to, so the price row
+     * describes the model that is actually billing. Best effort: the catalogue
+     * is only a hint and a failure falls back to `deepseek-flash`.
+     *
+     * @param ctx - client plugin context.
+     * @returns the model name, or undefined when the catalogue is unavailable.
+     */
+    async function loadDefaultModel(ctx) {
+      if (defaultModelCache !== undefined) return defaultModelCache;
+      try {
+        const namespace = ctx.remote?.session;
+        const catalog = namespace?.modelCatalog;
+        if (typeof catalog === 'function') {
+          const result = await catalog.call(namespace);
+          if (result?.ok === true) {
+            const model = result.value?.default?.model;
+            if (typeof model === 'string' && model !== '') {
+              defaultModelCache = model;
+              return model;
+            }
+          }
+        }
+      } catch {
+        // Fall through: the price row simply uses the built-in default.
+      }
+      return undefined;
+    }
+
     /** Inline geometry for the bar: it must render even with no stylesheet yet. */
     const TRACK_STYLE = Object.freeze({
       display: 'block',
@@ -436,13 +646,18 @@ window.__ModuleLoader__.load({
      * @param props - `wide` (sidebar column state), the locale seat, and this
      *   entry's injected snapshot reader (balance plus billed tokens).
      */
-    function CreditGauge({ wide, t, loadSnapshot: load }) {
+    function CreditGauge({ wide, t, loadSnapshot: load, loadModel }) {
       const tr = typeof t === 'function' ? t : (key) => key;
       const [regime, setRegime] = React.useState(readStoredCredit);
       const [problem, setProblem] = React.useState(null);
       const [detail, setDetail] = React.useState('');
+      const [now, setNow] = React.useState(() => Date.now());
+      const [model, setModel] = React.useState(undefined);
+      const book = React.useMemo(readPriceBook, []);
       const loaderRef = React.useRef(load);
       loaderRef.current = load;
+      const modelLoaderRef = React.useRef(loadModel);
+      modelLoaderRef.current = loadModel;
 
       const tick = React.useCallback(async () => {
         const loader = loaderRef.current;
@@ -503,6 +718,27 @@ window.__ModuleLoader__.load({
         };
       }, [tick]);
 
+      // The countdown is a pure clock: it never needs the balance, so it ticks
+      // independently of the two-minute poll.
+      React.useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), CLOCK_MS);
+        return () => clearInterval(timer);
+      }, []);
+
+      React.useEffect(() => {
+        const loader = modelLoaderRef.current;
+        if (typeof loader !== 'function') return;
+        let cancelled = false;
+        void loader()
+          .then((name) => {
+            if (!cancelled && typeof name === 'string' && name !== '') setModel(name);
+          })
+          .catch(() => {});
+        return () => {
+          cancelled = true;
+        };
+      }, []);
+
       // Nothing read yet and nothing stored: stay out of the way until we know.
       if (regime === null && problem === null) return null;
 
@@ -558,6 +794,34 @@ window.__ModuleLoader__.load({
       const usedTip = tokenTip(tokensForMoney(regime, used));
       const leftTip = tokenTip(tokensForMoney(regime, remaining));
 
+      // --- price tier and countdown -------------------------------------
+      const tierAt = priceTierAt(now, book);
+      const change = nextTierChange(now, book);
+      const activeModel = model ?? book.model ?? 'deepseek-flash';
+      const rates = book.models?.[activeModel]?.[tierAt];
+      const tierName = tierAt === 'peak' ? tr('price.peak') : tr('price.offPeak');
+      const priceLine = rates
+        ? `${tierName} ${tr('price.input')} ${formatPrice(rates.input)} · ${tr('price.output')} ${formatPrice(rates.output)} /M`
+        : tr('price.unknown', { model: activeModel });
+      const countdown = change === undefined ? '' : formatCountdown(change.at - now);
+      const switchLine =
+        change === undefined
+          ? ''
+          : tr(change.tier === 'peak' ? 'price.nextPeak' : 'price.nextOffPeak', { time: countdown });
+      const endsAt = change === undefined ? '' : formatStamp(change.at);
+      const priceTip = rates
+        ? tr('price.tip', {
+            model: activeModel,
+            tier: tierName,
+            input: formatPrice(rates.input),
+            output: formatPrice(rates.output),
+            cacheHit: formatPrice(rates.cacheHit),
+            source: book.source,
+          })
+        : tr('price.unknown', { model: activeModel });
+      const priceRowTip = `${priceLine}\n${priceTip}`;
+      const switchRowTip = change === undefined ? switchLine : `${switchLine}（${endsAt}）\n${priceTip}`;
+
       return React.createElement(
         'div',
         { className: anchorClass, 'data-dsh-token-gauge': 'credit' },
@@ -597,6 +861,9 @@ window.__ModuleLoader__.load({
           ),
           // Wide: share and the top-up stamp stay visible under the bar.
           React.createElement('span', { className: CLASS.meta }, tr('credit.meta', { percent, time: stamp === '' ? '—' : stamp })),
+          // Price tier now, and the countdown to the next one.
+          React.createElement('span', { className: CLASS.meta, title: priceRowTip }, priceLine),
+          switchLine === '' ? null : React.createElement('span', { className: CLASS.meta, title: switchRowTip }, switchLine),
           // Collapsed rail: only the share fits.
           React.createElement('span', { className: CLASS.railPercent }, tr('credit.percent', { percent })),
         ),
@@ -686,7 +953,7 @@ window.__ModuleLoader__.load({
             // start so the card hangs from the sidebar's own content edge.
             order: -1,
             locale: NS,
-            inject: () => ({ loadSnapshot: () => loadSnapshot(ctx) }),
+            inject: () => ({ loadSnapshot: () => loadSnapshot(ctx), loadModel: () => loadDefaultModel(ctx) }),
           },
           CreditGauge,
         ),
@@ -718,6 +985,13 @@ window.__ModuleLoader__.load({
     exports.tokensFromSessions = tokensFromSessions;
     exports.creditPrice = creditPrice;
     exports.tokensForMoney = tokensForMoney;
+    exports.priceTierAt = priceTierAt;
+    exports.nextTierChange = nextTierChange;
+    exports.formatCountdown = formatCountdown;
+    exports.formatPrice = formatPrice;
+    exports.beijingDayKey = beijingDayKey;
+    exports.readPriceBook = readPriceBook;
+    exports.PRICE_BOOK = PRICE_BOOK;
     return module.exports;
   },
 });
