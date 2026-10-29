@@ -313,6 +313,48 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /** Lowercase, punctuation-collapsed form of a model or provider name. */
+    function normalizeName(value) {
+      return String(value ?? '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    }
+
+    /**
+     * Map a catalogue model id onto a price-book key.
+     *
+     * The catalogue reports ids like `deepseek/deepseek-v4.1-flash` (provider
+     * prefix, dotted version) while the book is keyed by the published names
+     * (`deepseek-flash`, `deepseek-v4-pro`), so matching runs exact → containment
+     * → family heuristic. Aliases such as `deepseek-v4-flash` and
+     * `deepseek-v4-flash-vision-exp` bill at Flash rates per the docs.
+     *
+     * @param name - catalogue model id, a book key, or anything else.
+     * @param book - price book carrying `models`.
+     * @returns the matching book key, or undefined when nothing fits.
+     */
+    function resolveModelKey(name, book) {
+      const keys = Object.keys(book?.models ?? {});
+      if (keys.length === 0) return undefined;
+      const raw = String(name ?? '');
+      const bare = raw.includes('/') ? raw.slice(raw.lastIndexOf('/') + 1) : raw;
+      const target = normalizeName(bare);
+      if (target === '') return undefined;
+      const normalized = keys.map((key) => ({ key, value: normalizeName(key) }));
+      const exact = normalized.find((entry) => entry.value === target);
+      if (exact !== undefined) return exact.key;
+      const contains = normalized.find((entry) => target.includes(entry.value) || entry.value.includes(target));
+      if (contains !== undefined) return contains.key;
+      // Family fallback: pro first (a name mentioning both bills at pro rates).
+      for (const family of ['pro', 'flash']) {
+        if (!target.includes(family)) continue;
+        const member = normalized.find((entry) => entry.value.includes(family));
+        if (member !== undefined) return member.key;
+      }
+      return undefined;
+    }
+
     /** `YYYY-MM-DD` in Beijing time. */
     function beijingDayKey(ms) {
       const parts = beijingParts(ms);
@@ -797,8 +839,10 @@ window.__ModuleLoader__.load({
       // --- price tier and countdown -------------------------------------
       const tierAt = priceTierAt(now, book);
       const change = nextTierChange(now, book);
-      const activeModel = model ?? book.model ?? 'deepseek-flash';
-      const rates = book.models?.[activeModel]?.[tierAt];
+      const reportedModel = model ?? book.model;
+      const modelKey = resolveModelKey(reportedModel, book) ?? resolveModelKey('deepseek-flash', book);
+      const activeModel = modelKey ?? reportedModel ?? 'deepseek-flash';
+      const rates = modelKey === undefined ? undefined : book.models?.[modelKey]?.[tierAt];
       const tierName = tierAt === 'peak' ? tr('price.peak') : tr('price.offPeak');
       const priceLine = rates
         ? `${tierName} ${tr('price.input')} ${formatPrice(rates.input)} · ${tr('price.output')} ${formatPrice(rates.output)} /M`
@@ -809,16 +853,21 @@ window.__ModuleLoader__.load({
           ? ''
           : tr(change.tier === 'peak' ? 'price.nextPeak' : 'price.nextOffPeak', { time: countdown });
       const endsAt = change === undefined ? '' : formatStamp(change.at);
+      // The catalogue id and the priced name can differ; say so on hover.
+      const modelLabel =
+        reportedModel !== undefined && normalizeName(reportedModel) !== normalizeName(activeModel)
+          ? `${activeModel}（${reportedModel}）`
+          : activeModel;
       const priceTip = rates
         ? tr('price.tip', {
-            model: activeModel,
+            model: modelLabel,
             tier: tierName,
             input: formatPrice(rates.input),
             output: formatPrice(rates.output),
             cacheHit: formatPrice(rates.cacheHit),
             source: book.source,
           })
-        : tr('price.unknown', { model: activeModel });
+        : tr('price.unknown', { model: reportedModel ?? activeModel });
       const priceRowTip = `${priceLine}\n${priceTip}`;
       const switchRowTip = change === undefined ? switchLine : `${switchLine}（${endsAt}）\n${priceTip}`;
 
@@ -992,6 +1041,8 @@ window.__ModuleLoader__.load({
     exports.beijingDayKey = beijingDayKey;
     exports.readPriceBook = readPriceBook;
     exports.PRICE_BOOK = PRICE_BOOK;
+    exports.resolveModelKey = resolveModelKey;
+    exports.normalizeName = normalizeName;
     return module.exports;
   },
 });
